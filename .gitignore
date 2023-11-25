@@ -41,4 +41,4 @@ src/*.png
 .cache/
 build/
 build2/
-chroots/
+images/

@@ -1,13 +1,14 @@
 #include <errno.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include<signal.h>
+#include <sys/mount.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#define IMAGE_PATH "images/debian"
 
-void sigint_handler(int s){
-}
+void sigint_handler(int s) {}
 
 int main(int argc, char *argv[])
 {
@@ -16,9 +17,34 @@ int main(int argc, char *argv[])
         printf("Usage: ./container <program_location> [args]\n");
         exit(1);
     }
-    
-    signal(SIGINT, sigint_handler);
+    printf("===> Mounting /proc, /sys, /dev\n");
+    if (mount("/proc", IMAGE_PATH "/proc/", "proc", MS_REC, NULL) == -1)
+    {
+        perror("mount proc");
+    }
+    if (mount("/sys", IMAGE_PATH "/sys/", 0, MS_BIND | MS_REC | MS_SLAVE, NULL) == -1)
+    {
+        perror("mount sys");
+    }
+    if (mount("/dev", IMAGE_PATH "/dev/", 0, MS_BIND | MS_REC | MS_SLAVE, NULL) == -1)
+    {
+        perror("mount dev");
+    }
 
+    printf("===> Chrooting into %s\n", IMAGE_PATH);
+    if (chroot(IMAGE_PATH) == -1)
+    {
+        perror("chroot");
+        exit(1);
+    }
+    
+    if(chdir(IMAGE_PATH) == -1){
+        perror("chdir");
+        exit(1);
+    }
+
+
+    signal(SIGINT, sigint_handler);
     pid_t pid = fork();
     if (pid == -1)
     {
@@ -44,11 +70,19 @@ int main(int argc, char *argv[])
         if (waitpid(pid, &status, 0) == -1)
         {
             perror("waitpid");
+            exit(1);
         }
         if (WIFEXITED(status))
         {
             const int exit_status = WEXITSTATUS(status);
             printf("===> %s exited with exit code %d\n", argv[1], exit_status);
+            // printf("===> Unmounting file systems\n");
+            // if(umount(IMAGE_PATH "/dev/") == -1){perror("umount dev");};
+            // if(umount(IMAGE_PATH "/sys/") == -1){perror("umount sys");};
+            // if(umount(IMAGE_PATH "/proc/") == -1){perror("umount proc");};
+            // printf("===> DONE\n");
         }
     }
 }
+
+// TODO: Support custom environment variables
