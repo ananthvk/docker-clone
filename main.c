@@ -1,28 +1,49 @@
+#define _GNU_SOURCE
+#include "run.h"
 #include <errno.h>
+#include <sched.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mount.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#define IMAGE_PATH "images/debian"
 
 void sigint_handler(int s) {}
 
 int main(int argc, char *argv[])
 {
+    if (argc < 2 || (argc >= 2 && strcmp(argv[1], "help") == 0))
+    {
+        printf("Usage: ./container command [options]\n\n");
+        printf("commands:\n");
+        printf("run     Runs the specified image after creating a new container\n");
+        printf("        a file called <image_name>.tar.gz must exist within ./images/\n");
+        printf("        Containers will be created in ./containers/\n");
+        exit(0);
+    }
+    if (strcmp(argv[1], "run") == 0)
+    {
+        container_run(argc - 2, argv + 2);
+    }
+    else
+    {
+        printf("Invalid command, run ./container help to view the help.\n");
+    }
+    /*
     if (argc < 2)
     {
         printf("Usage: ./container <program_location> [args]\n");
         exit(1);
     }
     printf("===> Mounting /proc, /sys, /dev\n");
-    if (mount("/proc", IMAGE_PATH "/proc/", "proc", MS_PRIVATE, NULL) == -1)
+    if (mount("/proc", IMAGE_PATH "/proc/", "proc", 0, NULL) == -1)
     {
         perror("mount proc");
     }
-    if (mount("/sys", IMAGE_PATH "/sys/", 0, MS_BIND |MS_REC| MS_PRIVATE, NULL) == -1)
+    if (mount("/sys", IMAGE_PATH "/sys/", 0, MS_BIND | MS_REC | MS_PRIVATE, NULL) == -1)
     {
         perror("mount sys");
     }
@@ -37,8 +58,9 @@ int main(int argc, char *argv[])
         perror("chroot");
         exit(1);
     }
-    
-    if(chdir(IMAGE_PATH) == -1){
+
+    if (chdir(IMAGE_PATH) == -1)
+    {
         perror("chdir");
         exit(1);
     }
@@ -46,6 +68,7 @@ int main(int argc, char *argv[])
 
     signal(SIGINT, sigint_handler);
     pid_t pid = fork();
+
     if (pid == -1)
     {
         perror("fork");
@@ -57,6 +80,11 @@ int main(int argc, char *argv[])
         // argv[1] is the program to execute
         // Forward all other arguments to the new program
         printf("===> Executing %s [%d]\n", argv[1], getpid());
+        printf("===> Creating new namespace\n");
+        if(unshare(CLONE_NEWNS) == -1){
+            perror("unshare");
+            exit(1);
+        }
         if (execvp(argv[1], argv + 1) == -1)
         {
             perror("execvp");
@@ -77,13 +105,13 @@ int main(int argc, char *argv[])
             const int exit_status = WEXITSTATUS(status);
             printf("===> %s exited with exit code %d\n", argv[1], exit_status);
             printf("===> Unmounting file systems\n");
-            // if(umount(IMAGE_PATH "/dev/pts/") == -1){perror("umount dev/pts");};
-            // if(umount(IMAGE_PATH "/dev/") == -1){perror("umount dev");};
-            // if(umount(IMAGE_PATH "/sys/") == -1){perror("umount sys");};
-            // if(umount(IMAGE_PATH "/proc/") == -1){perror("umount proc");};
+            if(umount(IMAGE_PATH "/dev/") == -1){perror("umount dev");};
+            if(umount(IMAGE_PATH "/sys/") == -1){perror("umount sys");};
+            if(umount(IMAGE_PATH "/proc/") == -1){perror("umount proc");};
             printf("===> DONE\n");
         }
     }
+    */
 }
 
 // TODO: Support custom environment variables
