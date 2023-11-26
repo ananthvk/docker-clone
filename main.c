@@ -18,15 +18,15 @@ int main(int argc, char *argv[])
         exit(1);
     }
     printf("===> Mounting /proc, /sys, /dev\n");
-    if (mount("/proc", IMAGE_PATH "/proc/", "proc", MS_REC, NULL) == -1)
+    if (mount("/proc", IMAGE_PATH "/proc/", "proc", MS_PRIVATE, NULL) == -1)
     {
         perror("mount proc");
     }
-    if (mount("/sys", IMAGE_PATH "/sys/", 0, MS_BIND | MS_REC | MS_SLAVE, NULL) == -1)
+    if (mount("/sys", IMAGE_PATH "/sys/", 0, MS_BIND |MS_REC| MS_PRIVATE, NULL) == -1)
     {
         perror("mount sys");
     }
-    if (mount("/dev", IMAGE_PATH "/dev/", 0, MS_BIND | MS_REC | MS_SLAVE, NULL) == -1)
+    if (mount("/dev", IMAGE_PATH "/dev/", 0, MS_BIND | MS_REC | MS_PRIVATE, NULL) == -1)
     {
         perror("mount dev");
     }
@@ -76,11 +76,12 @@ int main(int argc, char *argv[])
         {
             const int exit_status = WEXITSTATUS(status);
             printf("===> %s exited with exit code %d\n", argv[1], exit_status);
-            // printf("===> Unmounting file systems\n");
+            printf("===> Unmounting file systems\n");
+            // if(umount(IMAGE_PATH "/dev/pts/") == -1){perror("umount dev/pts");};
             // if(umount(IMAGE_PATH "/dev/") == -1){perror("umount dev");};
             // if(umount(IMAGE_PATH "/sys/") == -1){perror("umount sys");};
             // if(umount(IMAGE_PATH "/proc/") == -1){perror("umount proc");};
-            // printf("===> DONE\n");
+            printf("===> DONE\n");
         }
     }
 }
