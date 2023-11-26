@@ -1,5 +1,6 @@
 #include "run.h"
 #include "config.h"
+#include "container.h"
 #include "string.h"
 #include "utils.h"
 #include <fcntl.h>
@@ -12,48 +13,23 @@
  * @param argv arguments after the run subcommand, null terminated
  */
 
-void container_run(int argc, char *argv[])
+void cmd_run(int argc, char *argv[])
 {
     if (argc == 0)
     {
         printf("Usage: ./container run [options] image_name command [command options]\n");
         exit(1);
     }
-    // We have gotten the image name, now extract the image into the containers directory with a
-    // unique id If the directories do not exist, create them.
-    const char *image_name = argv[0];
-    char *container_id = safe_malloc(CONTAINER_ID_LENGTH + 1);
-    container_id[CONTAINER_ID_LENGTH] = '\0';
-    random_id(container_id, CONTAINER_ID_LENGTH);
-    char *container_root = safe_malloc(strlen(CONTAINER_PATH) + CONTAINER_ID_LENGTH + 1);
-    container_root[0] = '\0';
-    strcat(container_root, CONTAINER_PATH);
-    strcat(container_root, container_id);
-
-    while (exists(container_root))
-    {
-        container_id = random_id(container_id, CONTAINER_ID_LENGTH);
-        strcat(container_root, CONTAINER_PATH);
-        strcat(container_root, container_id);
-    }
-
-    printf("=> Creating container %s [%s] \n", image_name, container_id);
-    if (mkdir(container_root, 0770) == -1) // Mode 770, full access to owner and group, others can't access
-    {
-        perror("mkdir could not create directory for container check if " CONTAINER_PATH " exists");
-        exit(1);
-    }
-
-    char *image_path = safe_malloc(strlen(IMAGE_PATH) + strlen(image_name) + 1 + 7); // +1 for null char, +7 for .tar.gz
-    image_path[0] = '\0';
-    strcat(image_path, IMAGE_PATH);
-    strcat(image_path, image_name);
-    strcat(image_path, ".tar.gz");
-
-    // Extract the contents of image to this root directory
-    char *extract_args[] = {"tar", "xf", image_path, "-C", container_root,  NULL};
-    execvp("tar", extract_args);
-    free(container_id);
-    free(image_path);
-    free(container_root);
+    struct Container container;
+    container.containers_path = CONTAINER_PATH;
+    container.image_name = argv[0];
+    container.images_path = IMAGE_PATH;
+    container.id_length = CONTAINER_ID_LENGTH;
+    printf("=> Creating container\n");
+    create_container_root_and_id(&container);
+    printf("=> Created container %s [%s] \n", container.image_name, container.id);
+    extract_image_container(&container);
+    printf("=> Extracted image to container\n");
+    free(container.id);
+    free(container.root);
 }

@@ -32,7 +32,8 @@ int main(int argc, char *argv[])
     }
     if (strcmp(argv[1], "run") == 0)
     {
-        container_run(argc - 2, argv + 2);
+        // Pass arguments after ./container run
+        cmd_run(argc - 2, argv + 2);
     }
     else
     {
