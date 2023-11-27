@@ -67,7 +67,6 @@ void extract_image_container(struct Container *container)
     strcpy(image_path, container->images_path);
     strcat(image_path, container->image_name);
     strcat(image_path, ".tar.gz");
-    image_path[img_path_length] = '\0';
     char *extract_args[] = {"tar", "xf", image_path, "-C", container->root, NULL};
     pid_t pid = fork();
     if (pid == -1)

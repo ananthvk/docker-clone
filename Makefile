@@ -6,3 +6,5 @@ build: main.c run.c run.h  utils.c utils.h  container.c container.h
 run: build
 	./container
 	
+run2:
+	./container run alpine /bin/ash
