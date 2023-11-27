@@ -18,4 +18,6 @@ struct Container{
 void create_container_root_and_id(struct Container *container);
 
 void extract_image_container(struct Container *container);
+void create_sys_proc_fs(struct Container *container);
+void delete_container(struct Container *container);
 #endif // COTNAINER_CONTAINER_H

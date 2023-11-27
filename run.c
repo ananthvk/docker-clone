@@ -59,37 +59,9 @@ void cmd_run(int argc, char *argv[])
             perror("mount root");
             exit(1);
         }
-
-        // Mount /proc and /sys
-        char *proc_path = safe_malloc(strlen(container.root) + strlen("/proc") + 1);
-        strcpy(proc_path, container.root);
-        strcat(proc_path, "/proc");
-        if (mkdir(proc_path, 0775) == -1)
-        {
-            perror("Error creating path for /proc");
-            exit(1);
-        }
-        if (mount(NULL, proc_path, "proc", 0, NULL) == -1)
-        {
-            perror("mount proc");
-            exit(1);
-        }
-        free(proc_path);
-
-        char *sys_path = safe_malloc(strlen(container.root) + strlen("/sys") + 1);
-        strcpy(sys_path, container.root);
-        strcat(sys_path, "/sys");
-        if (mkdir(sys_path, 0775) == -1)
-        {
-            perror("Error creating path for /sys");
-            exit(1);
-        }
-        if (mount(NULL, sys_path, "sysfs", 0, NULL) == -1)
-        {
-            perror("mount sys");
-            exit(1);
-        }
-        free(sys_path);
+        
+        create_sys_proc_fs(&container);
+        
 
         if (chroot(container.root) == -1)
         {
@@ -112,13 +84,7 @@ void cmd_run(int argc, char *argv[])
     {
         int status;
         waitpid(pid, &status, 0);
-        printf("=> Removing container\n");
-        char *rmargs[] = {"rm", "-rf", container.root, NULL};
-
-        if (execvp("rm", rmargs) == -1)
-        {
-            perror("rmdir: Could not remove container");
-        }
+        delete_container(&container);
         // Free resources
         free(container.id);
         free(container.root);

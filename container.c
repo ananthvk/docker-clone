@@ -4,6 +4,8 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
 
 // @brief Creates a new directory in [container.containers_path] for the root of the container
 // @details containers_path must be set before calling this function.
@@ -86,4 +88,50 @@ void extract_image_container(struct Container *container)
     int status;
     waitpid(pid, &status, 0);
     free(image_path);
+}
+
+void delete_container(struct Container *container)
+{
+    printf("=> Removing container\n");
+    char *rmargs[] = {"rm", "-rf", container->root, NULL};
+
+    if (execvp("rm", rmargs) == -1)
+    {
+        perror("rmdir: Could not remove container");
+    }
+}
+
+void create_sys_proc_fs(struct Container *container)
+{
+
+    // Mount /proc and /sys
+    char *proc_path = safe_malloc(strlen(container->root) + strlen("/proc") + 1);
+    strcpy(proc_path, container->root);
+    strcat(proc_path, "/proc");
+    if (mkdir(proc_path, 0755) == -1)
+    {
+        perror("Error creating path for /proc");
+        exit(1);
+    }
+    if (mount(NULL, proc_path, "proc", 0, NULL) == -1)
+    {
+        perror("mount proc");
+        exit(1);
+    }
+    free(proc_path);
+
+    char *sys_path = safe_malloc(strlen(container->root) + strlen("/sys") + 1);
+    strcpy(sys_path, container->root);
+    strcat(sys_path, "/sys");
+    if (mkdir(sys_path, 0775) == -1)
+    {
+        perror("Error creating path for /sys");
+        exit(1);
+    }
+    if (mount(NULL, sys_path, "sysfs", 0, NULL) == -1)
+    {
+        perror("mount sys");
+        exit(1);
+    }
+    free(sys_path);
 }
