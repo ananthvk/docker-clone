@@ -81,6 +81,7 @@ void extract_image_container(struct Container *container)
         {
             perror("tar: Error during extraction\n");
         }
+        // TODO: If error, quit here
     }
     int status;
     waitpid(pid, &status, 0);
