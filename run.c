@@ -59,10 +59,23 @@ void cmd_run(int argc, char *argv[])
             perror("mount root");
             exit(1);
         }
-        
-        create_sys_proc_fs(&container);
-        
 
+        create_sys_proc_fs(&container);
+
+        // Create /dev and fill it with some important entries
+        char *dev_path = safe_malloc(strlen(container.root) + strlen("/dev") + 1);
+        strcpy(dev_path, container.root);
+        strcat(dev_path, "/dev");
+
+        // TODO: Add error checking later
+        mkdir(dev_path, 0755);
+
+        if (mount(NULL, "/dev", "tmpfs", 0, NULL) == -1)
+        {
+            perror("mount dev");
+            exit(1);
+        }
+        
         if (chroot(container.root) == -1)
         {
             perror("chroot");
