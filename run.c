@@ -9,6 +9,7 @@
 #include <sched.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -31,11 +32,11 @@ void cmd_run(int argc, char *argv[])
     container.image_name = argv[0];
     container.images_path = IMAGE_PATH;
     container.id_length = CONTAINER_ID_LENGTH;
+
+
     printf("=> Creating container\n");
     container_create(&container);
     printf("=> Created container %s [%s] \n", container.image_name, container.id);
-    container_extract_image(&container);
-    printf("=> Extracted image to container\n");
     // Fork the process and create the container
     pid_t pid = fork();
     if (pid == -1)
@@ -60,19 +61,48 @@ void cmd_run(int argc, char *argv[])
             exit(1);
         }
 
+        // Temporary fix, so that old_root and new_root are not on the same
+        // file system
+        // TODO: Add error checking
+        if (mount(NULL, container.root, "tmpfs", 0, NULL) == -1)
+        {
+            perror("mount");
+            exit(1);
+        }
+        container_extract_image(&container);
+        printf("=> Extracted image to container\n");
+
         container_create_mounts(&container);
 
-        if (chroot(container.root) == -1)
+        char path[PATH_MAX];
+        snprintf(path, PATH_MAX, "%s/%s", container.root, "old-root");
+        mkdir(path, 0777);
+
+        if (syscall(SYS_pivot_root, container.root, path) == -1)
         {
-            perror("chroot");
+            perror("Pivot root");
             exit(1);
         }
 
-        if (chdir(container.root) == -1)
+        if (chdir("/") == -1)
         {
             perror("chdir");
             exit(1);
         }
+
+        // Remove old mount
+        if (umount2("/old-root", MNT_DETACH) == -1)
+        {
+            perror("umount2");
+            exit(1);
+        }
+
+        if (rmdir("/old-root") == -1)
+        {
+            perror("rmdir");
+            exit(1);
+        }
+
         if (execvp(argv[1], argv + 1))
         {
             perror("execvp");
@@ -89,3 +119,5 @@ void cmd_run(int argc, char *argv[])
         free(container.root);
     }
 }
+
+// TODO: Add sigint
