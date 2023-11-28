@@ -36,6 +36,7 @@ void cmd_run(int argc, char *argv[])
     printf("=> Created container %s [%s] \n", container.image_name, container.id);
     container_extract_image(&container);
     printf("=> Extracted image to container\n");
+    // Fork the process and create the container
     pid_t pid = fork();
     if (pid == -1)
     {
@@ -44,12 +45,7 @@ void cmd_run(int argc, char *argv[])
     }
     if (pid == 0)
     {
-        // An array to store path after combining them
-        char combined_path[PATH_MAX + 1] = {'\0'};
-
-        // Fork the process and create the container
-
-        // Unshare to create new namespace for mounts
+        // Unshare to create new namespace for new mounts
         if (unshare(CLONE_NEWNS) == -1)
         {
             perror("unshare: could not create new namespace, are you running as sudo?");
@@ -93,33 +89,3 @@ void cmd_run(int argc, char *argv[])
         free(container.root);
     }
 }
-/*
- *
-https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/devices.txt
- * To add to /dev
-# ln -s /proc/self/fd/0 /dev/stdin
-# ln -s /proc/self/fd/1 /dev/stdout
-# ln -s /proc/self/fd/2 /dev/stderr
-# ln -s /proc/kcore /dev/core
-# ln -s /proc/fd /dev/fd 
-
-Here are some more which I may need to add (after seeing a docker system)
-crw-rw-rw- 666  full
-drwxrwxrwt 1777 mqueue
-drwxrwxrwt 1777 shm
-
-Done:
-lrwxrwxrwx 777  ptmx
-lrwxrwxrwx 777  stderr
-lrwxrwxrwx 777  stdin
-lrwxrwxrwx 777  stdout
-drwxr-xr-x 755  pts
-crw-rw-rw- 666  urandom
-crw-rw-rw- 666  zero
-crw-rw-rw- 666  null
-crw-rw-rw- 666  tty
-crw-rw-rw- 666  random
-crw--w---- 620  console
-lrwxrwxrwx 777  core
-lrwxrwxrwx 777  fd
-*/

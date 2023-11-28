@@ -207,6 +207,7 @@ void container_create_mounts(struct Container *container)
     // Mount other devices in /dev
     container_create_node(container, "dev/urandom", S_IFCHR | 0666, 1, 9);
     container_create_node(container, "dev/random", S_IFCHR | 0666, 1, 8);
+    container_create_node(container, "dev/full", S_IFCHR | 0666, 1, 7);
     container_create_node(container, "dev/zero", S_IFCHR | 0666, 1, 5);
     container_create_node(container, "dev/null", S_IFCHR | 0666, 1, 3);
     container_create_node(container, "dev/tty", S_IFCHR | 0666, 5, 0);
@@ -219,4 +220,9 @@ void container_create_mounts(struct Container *container)
     container_create_symlink(container, 0, "/proc/self/fd/2", 1, "dev/stderr");
     container_create_symlink(container, 0, "/proc/kcore", 1, "dev/kcore");
     container_create_symlink(container, 0, "/proc/fd", 1, "dev/fd");
+    
+    // TODO:
+    // Add the following to /dev
+    // drwxrwxrwt 1777 mqueue
+    // drwxrwxrwt 1777 shm
 }
