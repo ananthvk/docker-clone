@@ -15,7 +15,7 @@ void *safe_malloc(size_t size)
 // Returns a random hexadecimal id string to be used as container id
 // Note: It would be better to use UUID to guarantee uniqueness, but for this simple solution
 // it will suffice to check if a directory with the id exists.
-char *random_id(char * buffer, int length)
+char *random_id(char *buffer, int length)
 {
     static const char table[] = {'0', '1', '2', '3', '4', '5', '6', '7',
                                  '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};

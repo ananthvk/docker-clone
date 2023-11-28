@@ -1,16 +1,17 @@
 #include "container.h"
 #include "utils.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 // @brief Creates a new directory in [container.containers_path] for the root of the container
 // @details containers_path must be set before calling this function.
 // Note this function also creates an ID for the container
-void create_container_root_and_id(struct Container *container)
+void container_create(struct Container *container)
 {
     if (container == NULL)
     {
@@ -60,7 +61,7 @@ void create_container_root_and_id(struct Container *container)
 
 // @brief Extracts the image from container.images_path/container.image_name.tar.gz
 // @details create_container_root_and_id must be called before this function
-void extract_image_container(struct Container *container)
+void container_extract_image(struct Container *container)
 {
     // Join container->images_path with container->image_name
     size_t img_path_length = strlen(container->images_path) + strlen(container->image_name) + 7;
@@ -90,7 +91,7 @@ void extract_image_container(struct Container *container)
     free(image_path);
 }
 
-void delete_container(struct Container *container)
+void container_delete(struct Container *container)
 {
     printf("=> Removing container\n");
     char *rmargs[] = {"rm", "-rf", container->root, NULL};
@@ -101,37 +102,60 @@ void delete_container(struct Container *container)
     }
 }
 
-void create_sys_proc_fs(struct Container *container)
+void container_create_mounts(struct Container *container)
 {
-
-    // Mount /proc and /sys
-    char *proc_path = safe_malloc(strlen(container->root) + strlen("/proc") + 1);
-    strcpy(proc_path, container->root);
-    strcat(proc_path, "/proc");
-    if (mkdir(proc_path, 0755) == -1)
+    char path[PATH_MAX];
+    // Mount /proc
+    int status = snprintf(path, PATH_MAX, "%s/proc", container->root);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    if (mkdir(path, 0755) == -1)
     {
         perror("Error creating path for /proc");
         exit(1);
     }
-    if (mount(NULL, proc_path, "proc", 0, NULL) == -1)
+    if (mount(NULL, path, "proc", 0, NULL) == -1)
     {
         perror("mount proc");
         exit(1);
     }
-    free(proc_path);
 
-    char *sys_path = safe_malloc(strlen(container->root) + strlen("/sys") + 1);
-    strcpy(sys_path, container->root);
-    strcat(sys_path, "/sys");
-    if (mkdir(sys_path, 0775) == -1)
+    // Mount /sys
+    status = snprintf(path, PATH_MAX, "%s/sys", container->root);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    if (mkdir(path, 0775) == -1)
     {
         perror("Error creating path for /sys");
         exit(1);
     }
-    if (mount(NULL, sys_path, "sysfs", 0, NULL) == -1)
+    if (mount(NULL, path, "sysfs", 0, NULL) == -1)
     {
         perror("mount sys");
         exit(1);
     }
-    free(sys_path);
+
+    // Mount /dev
+    status = snprintf(path, PATH_MAX, "%s/dev", container->root);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    if (mkdir(path, 0755) == -1)
+    {
+        perror("Error creating path for /dev");
+        exit(1);
+    }
+    if (mount(NULL, path, "tmpfs", 0, NULL) == -1)
+    {
+        perror("mount dev");
+        exit(1);
+    }
 }

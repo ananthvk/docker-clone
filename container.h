@@ -15,9 +15,9 @@ struct Container{
     int id_length;
 };
 
-void create_container_root_and_id(struct Container *container);
+void container_create(struct Container *container);
 
-void extract_image_container(struct Container *container);
-void create_sys_proc_fs(struct Container *container);
-void delete_container(struct Container *container);
+void container_extract_image(struct Container *container);
+void container_create_mounts(struct Container *container);
+void container_delete(struct Container *container);
 #endif // COTNAINER_CONTAINER_H

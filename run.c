@@ -5,6 +5,7 @@
 #include "string.h"
 #include "utils.h"
 #include <fcntl.h>
+#include <limits.h>
 #include <sched.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
@@ -31,9 +32,9 @@ void cmd_run(int argc, char *argv[])
     container.images_path = IMAGE_PATH;
     container.id_length = CONTAINER_ID_LENGTH;
     printf("=> Creating container\n");
-    create_container_root_and_id(&container);
+    container_create(&container);
     printf("=> Created container %s [%s] \n", container.image_name, container.id);
-    extract_image_container(&container);
+    container_extract_image(&container);
     printf("=> Extracted image to container\n");
     pid_t pid = fork();
     if (pid == -1)
@@ -43,6 +44,9 @@ void cmd_run(int argc, char *argv[])
     }
     if (pid == 0)
     {
+        // An array to store path after combining them
+        char combined_path[PATH_MAX + 1] = {'\0'};
+
         // Fork the process and create the container
 
         // Unshare to create new namespace for mounts
@@ -60,22 +64,8 @@ void cmd_run(int argc, char *argv[])
             exit(1);
         }
 
-        create_sys_proc_fs(&container);
+        container_create_mounts(&container);
 
-        // Create /dev and fill it with some important entries
-        char *dev_path = safe_malloc(strlen(container.root) + strlen("/dev") + 1);
-        strcpy(dev_path, container.root);
-        strcat(dev_path, "/dev");
-
-        // TODO: Add error checking later
-        mkdir(dev_path, 0755);
-
-        if (mount(NULL, "/dev", "tmpfs", 0, NULL) == -1)
-        {
-            perror("mount dev");
-            exit(1);
-        }
-        
         if (chroot(container.root) == -1)
         {
             perror("chroot");
@@ -97,9 +87,47 @@ void cmd_run(int argc, char *argv[])
     {
         int status;
         waitpid(pid, &status, 0);
-        delete_container(&container);
+        container_delete(&container);
         // Free resources
         free(container.id);
         free(container.root);
     }
 }
+/*
+ *
+https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/devices.txt
+ * To add to /dev
+# mount -t devpts devpts /dev/pts 
+# ln -s /proc/self/fd/0 /dev/stdin
+# ln -s /proc/self/fd/1 /dev/stdout
+# ln -s /proc/self/fd/2 /dev/stderr
+# mknod -m=666 /dev/urandom c 1 9 
+# mknod -m=666 /dev/random c 1 8 
+# mknod -m=666 /dev/zero c 1 5
+# mknod -m=666 /dev/null c 1 3
+# mknod -m=666 /dev/tty c 5 0
+# mknod -m=620 /dev/console c 5 1
+# mknod -m=777 /dev/ptmx c 5 2
+# ln -s /proc/kcore /dev/core
+# ln -s /proc/fd /dev/fd 
+
+Here are some more which I may need to add (after seeing a docker system)
+crw-rw-rw- 666  full
+drwxrwxrwt 1777 mqueue
+drwxrwxrwt 1777 shm
+
+Done:
+lrwxrwxrwx 777  ptmx
+lrwxrwxrwx 777  stderr
+lrwxrwxrwx 777  stdin
+lrwxrwxrwx 777  stdout
+drwxr-xr-x 755  pts
+crw-rw-rw- 666  urandom
+crw-rw-rw- 666  zero
+crw-rw-rw- 666  null
+crw-rw-rw- 666  tty
+crw-rw-rw- 666  random
+crw--w---- 620  console
+lrwxrwxrwx 777  core
+lrwxrwxrwx 777  fd
+*/
