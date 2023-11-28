@@ -1,10 +1,13 @@
 #include "container.h"
 #include "utils.h"
+#include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/sysmacros.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -102,60 +105,118 @@ void container_delete(struct Container *container)
     }
 }
 
+// Creates a mount point within the root of the container
+void container_create_mountpoint(struct Container *container, const char *mpoint, mode_t mode,
+                                 const char *fstype)
+{
+    static char path[PATH_MAX];
+    int status = snprintf(path, PATH_MAX, "%s/%s", container->root, mpoint);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    // Note that the parent directory should be created before creating a child directory
+    if (mkdir(path, mode) == -1)
+    {
+        fprintf(stderr, "Error creating directory %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+    if (mount(NULL, path, fstype, 0, NULL) == -1)
+    {
+        fprintf(stderr, "Error mounting %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+}
+
+// Note: mode must be a combination of S_IF* with a permission such as 0755 using OR
+void container_create_node(struct Container *container, const char *node_path, mode_t mode,
+                           unsigned int devmajor, unsigned int devminor)
+{
+    static char path[PATH_MAX];
+    int status = snprintf(path, PATH_MAX, "%s/%s", container->root, node_path);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    dev_t device = makedev(devmajor, devminor);
+    // References:
+    // https://man7.org/linux/man-pages/man7/inode.7.html
+    // https://man7.org/linux/man-pages/man2/mknod.2.html
+    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/devices.txt
+    if (mknod(path, mode, device) == -1)
+    {
+        fprintf(stderr, "Error creating node at %s: %s\n", path, strerror(errno));
+        exit(1);
+    }
+}
+
+// Creates a symlink from->to, if prefix_from is 1, the container's root path is prepended
+// to from, and if prefix_to is 1, the container's root path is prepended to to.
+void container_create_symlink(struct Container *container, int prefix_from, char *from,
+                              int prefix_to, char *to)
+{
+    static char from_path[PATH_MAX];
+    int status;
+
+    if (prefix_from)
+    {
+        status = snprintf(from_path, PATH_MAX, "%s/%s", container->root, from);
+    }
+    else
+    {
+        status = snprintf(from_path, PATH_MAX, "%s", from);
+    }
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+
+    static char to_path[PATH_MAX];
+
+    if (prefix_to)
+    {
+        status = snprintf(to_path, PATH_MAX, "%s/%s", container->root, to);
+    }
+    else
+    {
+        status = snprintf(to_path, PATH_MAX, "%s", to);
+    }
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+
+    if (symlink(from_path, to_path) == -1)
+    {
+        fprintf(stderr, "Error creating symlink between %s->%s\n", from_path, to_path);
+    }
+}
+
 void container_create_mounts(struct Container *container)
 {
-    char path[PATH_MAX];
-    // Mount /proc
-    int status = snprintf(path, PATH_MAX, "%s/proc", container->root);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    if (mkdir(path, 0755) == -1)
-    {
-        perror("Error creating path for /proc");
-        exit(1);
-    }
-    if (mount(NULL, path, "proc", 0, NULL) == -1)
-    {
-        perror("mount proc");
-        exit(1);
-    }
+    // Mount /proc, /sys and /dev
+    container_create_mountpoint(container, "proc", 0555, "proc");
+    container_create_mountpoint(container, "sys", 0555, "sysfs");
+    container_create_mountpoint(container, "dev", 0755, "tmpfs");
+    container_create_mountpoint(container, "dev/pts", 0755, "devpts");
 
-    // Mount /sys
-    status = snprintf(path, PATH_MAX, "%s/sys", container->root);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    if (mkdir(path, 0775) == -1)
-    {
-        perror("Error creating path for /sys");
-        exit(1);
-    }
-    if (mount(NULL, path, "sysfs", 0, NULL) == -1)
-    {
-        perror("mount sys");
-        exit(1);
-    }
+    // Mount other devices in /dev
+    container_create_node(container, "dev/urandom", S_IFCHR | 0666, 1, 9);
+    container_create_node(container, "dev/random", S_IFCHR | 0666, 1, 8);
+    container_create_node(container, "dev/zero", S_IFCHR | 0666, 1, 5);
+    container_create_node(container, "dev/null", S_IFCHR | 0666, 1, 3);
+    container_create_node(container, "dev/tty", S_IFCHR | 0666, 5, 0);
+    container_create_node(container, "dev/console", S_IFCHR | 0620, 5, 1);
+    container_create_node(container, "dev/ptmx", S_IFCHR | 0620, 5, 2);
 
-    // Mount /dev
-    status = snprintf(path, PATH_MAX, "%s/dev", container->root);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    if (mkdir(path, 0755) == -1)
-    {
-        perror("Error creating path for /dev");
-        exit(1);
-    }
-    if (mount(NULL, path, "tmpfs", 0, NULL) == -1)
-    {
-        perror("mount dev");
-        exit(1);
-    }
+    // Create symlinks such as /dev/stdin
+    container_create_symlink(container, 0, "/proc/self/fd/0", 1, "dev/stdin");
+    container_create_symlink(container, 0, "/proc/self/fd/1", 1, "dev/stdout");
+    container_create_symlink(container, 0, "/proc/self/fd/2", 1, "dev/stderr");
+    container_create_symlink(container, 0, "/proc/kcore", 1, "dev/kcore");
+    container_create_symlink(container, 0, "/proc/fd", 1, "dev/fd");
 }

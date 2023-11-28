@@ -97,17 +97,9 @@ void cmd_run(int argc, char *argv[])
  *
 https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/admin-guide/devices.txt
  * To add to /dev
-# mount -t devpts devpts /dev/pts 
 # ln -s /proc/self/fd/0 /dev/stdin
 # ln -s /proc/self/fd/1 /dev/stdout
 # ln -s /proc/self/fd/2 /dev/stderr
-# mknod -m=666 /dev/urandom c 1 9 
-# mknod -m=666 /dev/random c 1 8 
-# mknod -m=666 /dev/zero c 1 5
-# mknod -m=666 /dev/null c 1 3
-# mknod -m=666 /dev/tty c 5 0
-# mknod -m=620 /dev/console c 5 1
-# mknod -m=777 /dev/ptmx c 5 2
 # ln -s /proc/kcore /dev/core
 # ln -s /proc/fd /dev/fd 
 
