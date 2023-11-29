@@ -223,18 +223,27 @@ void container_delete(struct Container *container)
     printf("=> Removing container\n");
     char *rmargs[] = {"rm", "-rf", container->root, NULL};
 
-    if (execvp("rm", rmargs) == -1)
+    pid_t pid = fork();
+    if (pid == 0)
     {
-        perror("rmdir: Could not remove container");
+        if (execvp("rm", rmargs) == -1)
+        {
+            perror("rmdir: Could not remove container");
+        }
     }
 
     char path[PATH_MAX];
     // Remove overlay directory
-    snprintf(path, PATH_MAX, "%s/changes/%s", container->cache_path, container->id);
+    snprintf(path, PATH_MAX, "%schanges/%s", container->cache_path, container->id);
     rmargs[2] = path;
-    if (execvp("rm", rmargs) == -1)
+    printf("=> Deleting %s\n", path);
+    pid = fork();
+    if (pid == 0)
     {
-        perror("rmdir: Could not remove cache");
+        if (execvp("rm", rmargs) == -1)
+        {
+            perror("rmdir: Could not remove cache");
+        }
     }
 }
 
@@ -252,8 +261,15 @@ void container_create_mountpoint(struct Container *container, const char *mpoint
     // Note that the parent directory should be created before creating a child directory
     if (mkdir(path, mode) == -1)
     {
-        fprintf(stderr, "Error creating directory %s: %s\n", path, strerror(errno));
-        exit(1);
+        if (errno != EEXIST)
+        {
+            fprintf(stderr, "Error creating directory %s: %s\n", path, strerror(errno));
+            exit(1);
+        }
+        else
+        {
+            fprintf(stderr, "WARNING %s exists\n", path);
+        }
     }
     if (mount(NULL, path, fstype, 0, options) == -1)
     {

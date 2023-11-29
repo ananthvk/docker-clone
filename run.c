@@ -113,5 +113,7 @@ void cmd_run(int argc, char *argv[])
         free(container.root);
     }
 }
-
+// sudo debootstrap --arch amd64 jammy images/ubuntu 'http://archive.ubuntu.com/ubuntu/
+// https://cdimage.ubuntu.com/ubuntu-base/
+// https://cdimage.ubuntu.com/ubuntu-base/jammy/daily/current/jammy-base-amd64.tar.gz
 // TODO: Add sigint
