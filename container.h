@@ -13,6 +13,8 @@ struct Container{
     char *containers_path;
     // ID length
     int id_length;
+    // Directory in which to store cache such as overlayfs workdir and upperdir
+    char *cache_path;
 };
 
 void container_create(struct Container *container);

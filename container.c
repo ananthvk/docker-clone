@@ -62,36 +62,160 @@ void container_create(struct Container *container)
     waitpid(pid, &status, 0);
 }
 
-// @brief Extracts the image from container.images_path/container.image_name.tar.gz
-// @details create_container_root_and_id must be called before this function
 void container_extract_image(struct Container *container)
 {
-    // Join container->images_path with container->image_name
-    size_t img_path_length = strlen(container->images_path) + strlen(container->image_name) + 7;
-    // +1 for '\0' character and +7 for adding extension '.tar.gz'
-    char *image_path = safe_malloc(img_path_length + 1);
-    strcpy(image_path, container->images_path);
-    strcat(image_path, container->image_name);
-    strcat(image_path, ".tar.gz");
-    char *extract_args[] = {"tar", "xf", image_path, "-C", container->root, NULL};
-    pid_t pid = fork();
-    if (pid == -1)
+
+    if (mkdir(container->cache_path, 0755) == -1)
     {
-        perror("fork");
+        if (errno != EEXIST)
+        {
+            perror("Could not create cache for container");
+            exit(1);
+        }
+    }
+
+    static char path[PATH_MAX];
+    static char img_path[PATH_MAX];
+    int status = snprintf(path, PATH_MAX, "%s/extracted", container->cache_path);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
         exit(1);
     }
-    if (pid == 0)
+
+    if (mkdir(path, 0755) == -1)
     {
-        // In child process
-        if (execvp("tar", extract_args) == -1)
+        if (errno != EEXIST)
         {
-            perror("tar: Error during extraction\n");
+            perror("Could not create <cache>/extracted for container");
+            exit(1);
         }
-        // TODO: If error, quit here
     }
-    int status;
-    waitpid(pid, &status, 0);
-    free(image_path);
+
+    status = snprintf(img_path, PATH_MAX, "%s/extracted/%s", container->cache_path,
+                      container->image_name);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+
+    int extract_archive = 1;
+
+    if (mkdir(img_path, 0755) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("Could not create <cache>/extracted/<image> for container");
+            exit(1);
+        }
+        if (errno == EEXIST)
+        {
+            extract_archive = 0;
+        }
+    }
+
+    char image_archive_path[PATH_MAX];
+    status = snprintf(image_archive_path, PATH_MAX, "%s/%s.tar.gz", container->images_path,
+                      container->image_name);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+
+    if (extract_archive)
+    {
+        char *extract_args[] = {"tar", "xf", image_archive_path, "-C", img_path, NULL};
+        pid_t pid = fork();
+        if (pid == -1)
+        {
+            perror("fork");
+            exit(1);
+        }
+        if (pid == 0)
+        {
+            // In child process
+            if (execvp("tar", extract_args) == -1)
+            {
+                perror("tar: Error during extraction\n");
+            }
+            // TODO: If error, quit here
+        }
+        waitpid(pid, &status, 0);
+        printf("=> Extracted image to container");
+    }
+    else
+    {
+        printf("=> Image already present, not extracting\n");
+    }
+
+    // Create the overlayfs
+    status = snprintf(path, PATH_MAX, "%s/changes", container->cache_path);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    if (mkdir(path, 0755) == -1)
+    {
+        if (errno != EEXIST)
+        {
+            perror("mkdir changes");
+            exit(1);
+        }
+    }
+    status = snprintf(path, PATH_MAX, "%s/changes/%s", container->cache_path, container->id);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    if (mkdir(path, 0755) == -1)
+    {
+        perror("mkdir changes/id");
+        exit(1);
+    }
+    char upper_dir[PATH_MAX];
+    status =
+        snprintf(upper_dir, PATH_MAX, "%s/changes/%s/upper", container->cache_path, container->id);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    char work_dir[PATH_MAX];
+    status =
+        snprintf(work_dir, PATH_MAX, "%s/changes/%s/workdir", container->cache_path, container->id);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+
+    if (mkdir(work_dir, 0755) == -1)
+    {
+        perror("mkdir work_dir");
+        exit(1);
+    }
+    if (mkdir(upper_dir, 0755) == -1)
+    {
+        perror("mkdir upper_dir");
+        exit(1);
+    }
+    char format_string[PATH_MAX * 5];
+    status = snprintf(format_string, PATH_MAX * 5, "lowerdir=%s,upperdir=%s,workdir=%s", img_path,
+                      upper_dir, work_dir);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
+        exit(1);
+    }
+    if (mount("overlay", container->root, "overlay", 0, format_string) == -1)
+    {
+        fprintf(stderr, "Error mounting overlay %s\n", strerror(errno));
+        exit(1);
+    }
 }
 
 void container_delete(struct Container *container)
@@ -103,11 +227,20 @@ void container_delete(struct Container *container)
     {
         perror("rmdir: Could not remove container");
     }
+
+    char path[PATH_MAX];
+    // Remove overlay directory
+    snprintf(path, PATH_MAX, "%s/changes/%s", container->cache_path, container->id);
+    rmargs[2] = path;
+    if (execvp("rm", rmargs) == -1)
+    {
+        perror("rmdir: Could not remove cache");
+    }
 }
 
 // Creates a mount point within the root of the container
 void container_create_mountpoint(struct Container *container, const char *mpoint, mode_t mode,
-                                 const char *fstype)
+                                 const char *fstype, char *options)
 {
     static char path[PATH_MAX];
     int status = snprintf(path, PATH_MAX, "%s/%s", container->root, mpoint);
@@ -122,7 +255,7 @@ void container_create_mountpoint(struct Container *container, const char *mpoint
         fprintf(stderr, "Error creating directory %s: %s\n", path, strerror(errno));
         exit(1);
     }
-    if (mount(NULL, path, fstype, 0, NULL) == -1)
+    if (mount(NULL, path, fstype, 0, options) == -1)
     {
         fprintf(stderr, "Error mounting %s: %s\n", path, strerror(errno));
         exit(1);
@@ -199,10 +332,10 @@ void container_create_symlink(struct Container *container, int prefix_from, char
 void container_create_mounts(struct Container *container)
 {
     // Mount /proc, /sys and /dev
-    container_create_mountpoint(container, "proc", 0555, "proc");
-    container_create_mountpoint(container, "sys", 0555, "sysfs");
-    container_create_mountpoint(container, "dev", 0755, "tmpfs");
-    container_create_mountpoint(container, "dev/pts", 0755, "devpts");
+    container_create_mountpoint(container, "proc", 0555, "proc", NULL);
+    container_create_mountpoint(container, "sys", 0555, "sysfs", NULL);
+    container_create_mountpoint(container, "dev", 0755, "tmpfs", NULL);
+    container_create_mountpoint(container, "dev/pts", 0755, "devpts", NULL);
 
     // Mount other devices in /dev
     container_create_node(container, "dev/urandom", S_IFCHR | 0666, 1, 9);
@@ -220,9 +353,13 @@ void container_create_mounts(struct Container *container)
     container_create_symlink(container, 0, "/proc/self/fd/2", 1, "dev/stderr");
     container_create_symlink(container, 0, "/proc/kcore", 1, "dev/kcore");
     container_create_symlink(container, 0, "/proc/fd", 1, "dev/fd");
-    
+
+
     // TODO:
     // Add the following to /dev
     // drwxrwxrwt 1777 mqueue
     // drwxrwxrwt 1777 shm
+
+    // Create overlayfs
+    // https://www.kernel.org/doc/Documentation/filesystems/overlayfs.txt
 }

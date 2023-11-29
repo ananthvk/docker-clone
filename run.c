@@ -4,6 +4,7 @@
 #include "container.h"
 #include "string.h"
 #include "utils.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <sched.h>
@@ -32,6 +33,7 @@ void cmd_run(int argc, char *argv[])
     container.image_name = argv[0];
     container.images_path = IMAGE_PATH;
     container.id_length = CONTAINER_ID_LENGTH;
+    container.cache_path = CONTAINER_CACHE_PATH;
 
 
     printf("=> Creating container\n");
@@ -49,7 +51,7 @@ void cmd_run(int argc, char *argv[])
         // Unshare to create new namespace for new mounts
         if (unshare(CLONE_NEWNS) == -1)
         {
-            perror("unshare: could not create new namespace, are you running as sudo?");
+            perror("unshare: could not create new namespace, are you running as root?");
             exit(1);
         }
 
@@ -60,22 +62,13 @@ void cmd_run(int argc, char *argv[])
             perror("mount root");
             exit(1);
         }
-
-        // Temporary fix, so that old_root and new_root are not on the same
-        // file system
-        // TODO: Add error checking
-        if (mount(NULL, container.root, "tmpfs", 0, NULL) == -1)
-        {
-            perror("mount");
-            exit(1);
-        }
         container_extract_image(&container);
-        printf("=> Extracted image to container\n");
 
         container_create_mounts(&container);
 
         char path[PATH_MAX];
-        snprintf(path, PATH_MAX, "%s/%s", container.root, "old-root");
+        // TODO: Check if snprintf fails
+        snprintf(path, PATH_MAX, "%s/old-root%s", container.root, container.id);
         mkdir(path, 0777);
 
         if (syscall(SYS_pivot_root, container.root, path) == -1)
@@ -91,13 +84,14 @@ void cmd_run(int argc, char *argv[])
         }
 
         // Remove old mount
-        if (umount2("/old-root", MNT_DETACH) == -1)
+        snprintf(path, PATH_MAX, "/old-root%s", container.id);
+        if (umount2(path, MNT_DETACH) == -1)
         {
             perror("umount2");
             exit(1);
         }
 
-        if (rmdir("/old-root") == -1)
+        if (rmdir(path) == -1)
         {
             perror("rmdir");
             exit(1);
