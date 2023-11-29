@@ -49,12 +49,17 @@ void cmd_run(int argc, char *argv[])
     if (pid == 0)
     {
         // Unshare to create new namespace for new mounts
-        if (unshare(CLONE_NEWNS) == -1)
+        // also set CLONE_NEWUTS for setting new hostname
+        if (unshare(CLONE_NEWNS | CLONE_NEWUTS) == -1)
         {
             perror("unshare: could not create new namespace, are you running as root?");
             exit(1);
         }
-
+        if (sethostname(container.id, container.id_length) == -1)
+        {
+            perror("Could not set hostname");
+            exit(1);
+        }
         // Mount the root file system as private so that mount events do not propagate in and out of
         // it
         if (mount(NULL, "/", NULL, MS_PRIVATE | MS_REC, NULL) == -1)
@@ -113,6 +118,7 @@ void cmd_run(int argc, char *argv[])
         free(container.root);
     }
 }
+
 // sudo debootstrap --arch amd64 jammy images/ubuntu 'http://archive.ubuntu.com/ubuntu/
 // https://cdimage.ubuntu.com/ubuntu-base/
 // https://cdimage.ubuntu.com/ubuntu-base/jammy/daily/current/jammy-base-amd64.tar.gz
