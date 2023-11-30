@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mount.h>
@@ -11,39 +12,85 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-// @brief Creates a new directory in [container.containers_path] for the root of the container
-// @details containers_path must be set before calling this function.
-// Note this function also creates an ID for the container
-void container_create(struct Container *container)
+// This is a thin wrapper around snprintf, but this function calls exit
+// if snprintf fails due to insufficient buffer capacity
+int strformat(char *buffer, size_t bufflen, const char *fmt, ...)
 {
-    if (container == NULL)
+    va_list args;
+    va_start(args, fmt);
+    int status = vsnprintf(buffer, bufflen, fmt, args);
+    if (status < 0 || status >= PATH_MAX)
     {
-        fprintf(stderr, "Critical: container was null\n");
-        exit(3);
+        va_end(args);
+        errorMessage("%s\n", "vsnprintf: Either the string was too large or snprintf failed.\n");
     }
+    va_end(args);
+    return status;
+}
 
-    // Create a single ID which is null terminated for the container
-    char *id_buf = safe_malloc(container->id_length + 1);
-    random_id(id_buf, container->id_length);
-    id_buf[container->id_length] = '\0';
-
-    // It is assumed that containers_path ends with a '/'
-    char *root = safe_malloc(strlen(container->containers_path) + container->id_length +
-                             1); // +1 for null char
-    strcpy(root, container->containers_path);
-    strcat(root, id_buf);
-
-    // If a file/folder by the same name exists, keep generating random IDs, until it finds
-    // one which does not exist
-    while (exists(root))
+// Creates a directory using the mkdir() system call
+// prefix is a path to add before the directory, like container root location
+// if prefix is null, or empty, no prefix is added
+void create_directory(const char *prefix, const char *path, mode_t mode)
+{
+    static char buffer[PATH_MAX];
+    if (prefix == NULL || prefix[0] == '\0')
     {
-        random_id(id_buf, container->id_length);
-        strcpy(root, container->containers_path);
-        strcat(root, id_buf);
+        strformat(buffer, PATH_MAX, "%s", path);
     }
-    container->root = root;
-    container->id = id_buf;
-    char *args[] = {"mkdir", "-p", root, NULL};
+    else
+    {
+        strformat(buffer, PATH_MAX, "%s/%s", prefix, path);
+    }
+    if (mkdir(buffer, mode) == -1)
+    {
+        errorMessage("%s\n", "mkdir() failed");
+    }
+}
+
+// Same as create_directory, but does not fail if the directory exists
+void create_directory_exists_ok(const char *prefix, const char *path, mode_t mode)
+{
+    static char buffer[PATH_MAX];
+    if (prefix == NULL || prefix[0] == '\0')
+    {
+        strformat(buffer, PATH_MAX, "%s", path);
+    }
+    else
+    {
+        strformat(buffer, PATH_MAX, "%s/%s", prefix, path);
+    }
+    if (mkdir(buffer, mode) == -1)
+    {
+        if (errno == EEXIST)
+            return;
+        errorMessage("%s\n", "mkdir() failed");
+    }
+}
+
+// Creates the parents of the directory if they do not exist
+// Does not modify the mode of the parent and does not error if exists
+// behaves like mkdir -p
+void create_directory_parents(const char *prefix, const char *path, mode_t mode)
+{
+    static char buffer[PATH_MAX];
+    if (prefix == NULL || prefix[0] == '\0')
+    {
+        strformat(buffer, PATH_MAX, "%s", path);
+    }
+    else
+    {
+        strformat(buffer, PATH_MAX, "%s/%s", prefix, path);
+    }
+    // TODO
+    printf("Not implemented");
+    exit(3);
+}
+
+// Executes the given command after fork() using execvp()
+// Incase of any error, calls exit()
+void exec_command(char *command, char **args)
+{
     pid_t pid = fork();
     if (pid == -1)
     {
@@ -53,18 +100,58 @@ void container_create(struct Container *container)
     if (pid == 0)
     {
         // In child process
-        if (execvp("mkdir", args) == -1)
+        if (execvp(command, args) == -1)
         {
-            perror("mkdir: create container");
+            fprintf(stderr, "exec_command %s: %s\n", command, strerror(errno));
+            exit(1);
         }
     }
     int status;
-    waitpid(pid, &status, 0);
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        fprintf(stderr, "waitpid (for exec_command %s): %s\n", command, strerror(errno));
+        exit(1);
+    }
+    if (WIFEXITED(status))
+    {
+        const int exit_status = WEXITSTATUS(status);
+        if (exit_status != EXIT_SUCCESS)
+        {
+            fprintf(stderr, "sub_command %s failed: %s\n", command, strerror(errno));
+            exit(1);
+        }
+    }
+}
+
+// @brief Creates a new directory in [container.containers_path] for the root of the container
+// @details containers_path must be set before calling this function.
+// Note this function also creates an ID for the container
+void container_create(struct Container *container)
+{
+    char *id_buf = safe_malloc(container->id_length + 1);
+    random_id(id_buf, container->id_length);
+    id_buf[container->id_length] = '\0';
+
+    char *root = safe_malloc(PATH_MAX);
+    strformat(root, PATH_MAX, "%s/%s", container->containers_path, id_buf);
+
+    // If a file/folder by the same name exists, keep generating random IDs till a unique name is
+    // found
+    while (exists(root))
+    {
+        random_id(id_buf, container->id_length);
+        strformat(root, PATH_MAX, "%s/%s", container->containers_path, id_buf);
+    }
+
+    container->root = root;
+    container->id = id_buf;
+
+    char *args[] = {"mkdir", "-p", root, NULL};
+    exec_command("mkdir", args);
 }
 
 void container_extract_image(struct Container *container)
 {
-
     if (mkdir(container->cache_path, 0755) == -1)
     {
         if (errno != EEXIST)
@@ -221,30 +308,15 @@ void container_extract_image(struct Container *container)
 void container_delete(struct Container *container)
 {
     printf("=> Removing container\n");
+    // Delete container
     char *rmargs[] = {"rm", "-rf", container->root, NULL};
-
-    pid_t pid = fork();
-    if (pid == 0)
-    {
-        if (execvp("rm", rmargs) == -1)
-        {
-            perror("rmdir: Could not remove container");
-        }
-    }
+    exec_command("rm", rmargs);
 
     char path[PATH_MAX];
     // Remove overlay directory
-    snprintf(path, PATH_MAX, "%schanges/%s", container->cache_path, container->id);
+    strformat(path, PATH_MAX, "%schanges/%s", container->cache_path, container->id);
     rmargs[2] = path;
-    printf("=> Deleting %s\n", path);
-    pid = fork();
-    if (pid == 0)
-    {
-        if (execvp("rm", rmargs) == -1)
-        {
-            perror("rmdir: Could not remove cache");
-        }
-    }
+    exec_command("rm", rmargs);
 }
 
 // Creates a mount point within the root of the container
