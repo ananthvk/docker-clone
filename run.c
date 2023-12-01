@@ -33,7 +33,6 @@ void cmd_run(int argc, char *argv[])
     container.image_name = argv[0];
     container.images_path = IMAGE_PATH;
     container.id_length = CONTAINER_ID_LENGTH;
-    container.cache_path = CONTAINER_CACHE_PATH;
 
 
     printf("=> Creating container\n");
@@ -68,7 +67,7 @@ void cmd_run(int argc, char *argv[])
             exit(1);
         }
         container_extract_image(&container);
-
+        container_create_overlayfs(&container);
         container_create_mounts(&container);
 
         char path[PATH_MAX];
@@ -116,6 +115,8 @@ void cmd_run(int argc, char *argv[])
         // Free resources
         free(container.id);
         free(container.root);
+        free(container.container_dir);
+        free(container.image_path);
     }
 }
 

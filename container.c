@@ -44,7 +44,7 @@ void create_directory(const char *prefix, const char *path, mode_t mode)
     }
     if (mkdir(buffer, mode) == -1)
     {
-        errorMessage("%s\n", "mkdir() failed");
+        errorMessage("%s%s\n", "mkdir() failed to create ", buffer);
     }
 }
 
@@ -123,7 +123,7 @@ void exec_command(char *command, char **args)
     }
 }
 
-// @brief Creates a new directory in [container.containers_path] for the root of the container
+// @brief Creates a new directory in [container.containers_path] for this container
 // @details containers_path must be set before calling this function.
 // Note this function also creates an ID for the container
 void container_create(struct Container *container)
@@ -132,190 +132,82 @@ void container_create(struct Container *container)
     random_id(id_buf, container->id_length);
     id_buf[container->id_length] = '\0';
 
-    char *root = safe_malloc(PATH_MAX);
-    strformat(root, PATH_MAX, "%s/%s", container->containers_path, id_buf);
+    char *container_dir = safe_malloc(PATH_MAX);
+    strformat(container_dir, PATH_MAX, "%s/%s", container->containers_path, id_buf);
 
     // If a file/folder by the same name exists, keep generating random IDs till a unique name is
     // found
-    while (exists(root))
+    while (exists(container_dir))
     {
         random_id(id_buf, container->id_length);
-        strformat(root, PATH_MAX, "%s/%s", container->containers_path, id_buf);
+        id_buf[container->id_length] = '\0';
+        strformat(container_dir, PATH_MAX, "%s/%s", container->containers_path, id_buf);
     }
-
-    container->root = root;
-    container->id = id_buf;
-
-    char *args[] = {"mkdir", "-p", root, NULL};
+    char *args[] = {"mkdir", "-p", container_dir, NULL};
     exec_command("mkdir", args);
+    container->container_dir = container_dir;
+    container->id = id_buf;
 }
 
+// Extracts the image if it is being used for the first time
 void container_extract_image(struct Container *container)
 {
-    if (mkdir(container->cache_path, 0755) == -1)
+    char *path = safe_malloc(PATH_MAX);
+    strformat(path, PATH_MAX, "%s/__extracted/%s", container->containers_path,
+              container->image_name);
+    container->image_path = path;
+    if (exists(path))
     {
-        if (errno != EEXIST)
-        {
-            perror("Could not create cache for container");
-            exit(1);
-        }
-    }
-
-    static char path[PATH_MAX];
-    static char img_path[PATH_MAX];
-    int status = snprintf(path, PATH_MAX, "%s/extracted", container->cache_path);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-
-    if (mkdir(path, 0755) == -1)
-    {
-        if (errno != EEXIST)
-        {
-            perror("Could not create <cache>/extracted for container");
-            exit(1);
-        }
-    }
-
-    status = snprintf(img_path, PATH_MAX, "%s/extracted/%s", container->cache_path,
-                      container->image_name);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-
-    int extract_archive = 1;
-
-    if (mkdir(img_path, 0755) == -1)
-    {
-        if (errno != EEXIST)
-        {
-            perror("Could not create <cache>/extracted/<image> for container");
-            exit(1);
-        }
-        if (errno == EEXIST)
-        {
-            extract_archive = 0;
-        }
-    }
-
-    char image_archive_path[PATH_MAX];
-    status = snprintf(image_archive_path, PATH_MAX, "%s/%s.tar.gz", container->images_path,
-                      container->image_name);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-
-    if (extract_archive)
-    {
-        char *extract_args[] = {"tar", "xf", image_archive_path, "-C", img_path, NULL};
-        pid_t pid = fork();
-        if (pid == -1)
-        {
-            perror("fork");
-            exit(1);
-        }
-        if (pid == 0)
-        {
-            // In child process
-            if (execvp("tar", extract_args) == -1)
-            {
-                perror("tar: Error during extraction\n");
-            }
-            // TODO: If error, quit here
-        }
-        waitpid(pid, &status, 0);
-        printf("=> Extracted image to container");
+        printf("=> Found existing image cache, not extracting\n");
     }
     else
     {
-        printf("=> Image already present, not extracting\n");
+        printf("=> %s is being used for the first time ... extracting\n", container->image_name);
+        create_directory_exists_ok(container->containers_path, "__extracted", 0755);
+        create_directory(NULL, path, 0755);
+        char image_archive_path[PATH_MAX];
+        strformat(image_archive_path, PATH_MAX, "%s/%s.tar.gz", container->images_path,
+                  container->image_name);
+        char *tar_args[] = {"tar", "xf", image_archive_path, "-C", path, NULL};
+        exec_command("tar", tar_args);
     }
+}
 
-    // Create the overlayfs
-    status = snprintf(path, PATH_MAX, "%s/changes", container->cache_path);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    if (mkdir(path, 0755) == -1)
-    {
-        if (errno != EEXIST)
-        {
-            perror("mkdir changes");
-            exit(1);
-        }
-    }
-    status = snprintf(path, PATH_MAX, "%s/changes/%s", container->cache_path, container->id);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    if (mkdir(path, 0755) == -1)
-    {
-        perror("mkdir changes/id");
-        exit(1);
-    }
-    char upper_dir[PATH_MAX];
-    status =
-        snprintf(upper_dir, PATH_MAX, "%s/changes/%s/upper", container->cache_path, container->id);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    char work_dir[PATH_MAX];
-    status =
-        snprintf(work_dir, PATH_MAX, "%s/changes/%s/workdir", container->cache_path, container->id);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
+void container_create_overlayfs(struct Container *container)
+{
+    // Create overlayfs
+    // https://www.kernel.org/doc/Documentation/filesystems/overlayfs.txt
+    char *workdir = safe_malloc(PATH_MAX);
+    char *rootdir = safe_malloc(PATH_MAX);
+    char *diffdir = safe_malloc(PATH_MAX);
 
-    if (mkdir(work_dir, 0755) == -1)
-    {
-        perror("mkdir work_dir");
-        exit(1);
-    }
-    if (mkdir(upper_dir, 0755) == -1)
-    {
-        perror("mkdir upper_dir");
-        exit(1);
-    }
-    char format_string[PATH_MAX * 5];
-    status = snprintf(format_string, PATH_MAX * 5, "lowerdir=%s,upperdir=%s,workdir=%s", img_path,
-                      upper_dir, work_dir);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    if (mount("overlay", container->root, "overlay", 0, format_string) == -1)
+    strformat(workdir, PATH_MAX, "%s/work", container->container_dir, container->id);
+    strformat(rootdir, PATH_MAX, "%s/root", container->container_dir, container->id);
+    strformat(diffdir, PATH_MAX, "%s/diff", container->container_dir, container->id);
+
+    create_directory(NULL, workdir, 0755);
+    create_directory(NULL, rootdir, 0755);
+    create_directory(NULL, diffdir, 0755);
+
+    char *opts_string = safe_malloc(PATH_MAX * 4);
+    strformat(opts_string, PATH_MAX * 4, "lowerdir=%s,upperdir=%s,workdir=%s",
+              container->image_path, diffdir, workdir);
+    if (mount("overlay", rootdir, "overlay", 0, opts_string) == -1)
     {
         fprintf(stderr, "Error mounting overlay %s\n", strerror(errno));
         exit(1);
     }
+    container->root = rootdir;
+    free(opts_string);
+    free(diffdir);
+    free(workdir);
 }
 
 void container_delete(struct Container *container)
 {
     printf("=> Removing container\n");
     // Delete container
-    char *rmargs[] = {"rm", "-rf", container->root, NULL};
-    exec_command("rm", rmargs);
-
-    char path[PATH_MAX];
-    // Remove overlay directory
-    strformat(path, PATH_MAX, "%schanges/%s", container->cache_path, container->id);
-    rmargs[2] = path;
+    char *rmargs[] = {"rm", "-rf", container->container_dir, NULL};
     exec_command("rm", rmargs);
 }
 
@@ -324,25 +216,8 @@ void container_create_mountpoint(struct Container *container, const char *mpoint
                                  const char *fstype, char *options)
 {
     static char path[PATH_MAX];
-    int status = snprintf(path, PATH_MAX, "%s/%s", container->root, mpoint);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-    // Note that the parent directory should be created before creating a child directory
-    if (mkdir(path, mode) == -1)
-    {
-        if (errno != EEXIST)
-        {
-            fprintf(stderr, "Error creating directory %s: %s\n", path, strerror(errno));
-            exit(1);
-        }
-        else
-        {
-            fprintf(stderr, "WARNING %s exists\n", path);
-        }
-    }
+    strformat(path, PATH_MAX, "%s/%s", container->root, mpoint);
+    create_directory_exists_ok(NULL, path, mode);
     if (mount(NULL, path, fstype, 0, options) == -1)
     {
         fprintf(stderr, "Error mounting %s: %s\n", path, strerror(errno));
@@ -379,38 +254,25 @@ void container_create_symlink(struct Container *container, int prefix_from, char
                               int prefix_to, char *to)
 {
     static char from_path[PATH_MAX];
-    int status;
+    static char to_path[PATH_MAX];
 
     if (prefix_from)
     {
-        status = snprintf(from_path, PATH_MAX, "%s/%s", container->root, from);
+        strformat(from_path, PATH_MAX, "%s/%s", container->root, from);
     }
     else
     {
-        status = snprintf(from_path, PATH_MAX, "%s", from);
+        strformat(from_path, PATH_MAX, "%s", from);
     }
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-
-    static char to_path[PATH_MAX];
 
     if (prefix_to)
     {
-        status = snprintf(to_path, PATH_MAX, "%s/%s", container->root, to);
+        strformat(to_path, PATH_MAX, "%s/%s", container->root, to);
     }
     else
     {
-        status = snprintf(to_path, PATH_MAX, "%s", to);
+        strformat(to_path, PATH_MAX, "%s", to);
     }
-    if (status < 0 || status >= PATH_MAX)
-    {
-        fprintf(stderr, "Either the path was too large or snprintf failed.\n");
-        exit(1);
-    }
-
     if (symlink(from_path, to_path) == -1)
     {
         fprintf(stderr, "Error creating symlink between %s->%s\n", from_path, to_path);
@@ -441,13 +303,8 @@ void container_create_mounts(struct Container *container)
     container_create_symlink(container, 0, "/proc/self/fd/2", 1, "dev/stderr");
     container_create_symlink(container, 0, "/proc/kcore", 1, "dev/kcore");
     container_create_symlink(container, 0, "/proc/fd", 1, "dev/fd");
-
-
     // TODO:
     // Add the following to /dev
     // drwxrwxrwt 1777 mqueue
     // drwxrwxrwt 1777 shm
-
-    // Create overlayfs
-    // https://www.kernel.org/doc/Documentation/filesystems/overlayfs.txt
 }

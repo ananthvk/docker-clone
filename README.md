@@ -19,3 +19,13 @@ but instead of using python, I am going to do it in `C`
 9. chroot() into the container root.
 10. chdir() to `/`
 11. execvp() the new process.
+
+# The directory structure of the container
+## Config
+`containers_path` - Path in which to store temporary containers and extracted images
+`images_path` - Path in which image files (as tar.gz) are stored
+## Created by program
+`<containers_path>/__extracted/<image_name>` - Extracted image files are stored here
+`<containers_path>/<container_id>/root` - New root of the container (`merged` directory)
+`<containers_path>/<container_id>/work` - `workdir` of the overlay
+`<containers_path>/<container_id>/diff` - Place modifications by the overlay are stored (`upperdir`)
