@@ -116,10 +116,28 @@ void cmd_run(int argc, char *argv[])
 
     char *stack = safe_malloc(STACK_SIZE);
     char *stack_top = stack + STACK_SIZE; // Since stack grows downwards
+    // +-----+----+ <- char* stack_top (for the child, it grows in downard direction)
+    // |     |    | 0x5000
+    // |     |    | 0x4000
+    // |     |    | 0x3000
+    // |     |    | 0x2000
+    // |     v    | 0x1000
+    // +----------+ <- char* stack
+    // |          |
+    // |          |
+    // |          |
+    // |          |
+    // |          |
+    // +----------+
 
     // Clone - new namespace, new uts for a new hostname, sigchld so that the parent is notified
     // if the child exits
-    pid_t pid = clone(&run_container, stack_top, CLONE_NEWNS | CLONE_NEWUTS | SIGCHLD, (void *)&data);
+    pid_t pid =
+        clone(&run_container, stack_top, CLONE_NEWNS | CLONE_NEWUTS | CLONE_NEWPID | SIGCHLD, (void *)&data);
+    // After adding CLONE_NEWPID, running ps -e inside the container
+    // does not show any process running on the host
+    // ps -e from outside the container shows the processes inside the container
+    // kill -9 also works from outside the container
     if (pid == -1)
     {
         perror("clone, container creation");
