@@ -12,22 +12,6 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-// This is a thin wrapper around snprintf, but this function calls exit
-// if snprintf fails due to insufficient buffer capacity
-int strformat(char *buffer, size_t bufflen, const char *fmt, ...)
-{
-    va_list args;
-    va_start(args, fmt);
-    int status = vsnprintf(buffer, bufflen, fmt, args);
-    if (status < 0 || status >= PATH_MAX)
-    {
-        va_end(args);
-        errorMessage("%s\n", "vsnprintf: Either the string was too large or snprintf failed.\n");
-    }
-    va_end(args);
-    return status;
-}
-
 // Creates a directory using the mkdir() system call
 // prefix is a path to add before the directory, like container root location
 // if prefix is null, or empty, no prefix is added
@@ -85,42 +69,6 @@ void create_directory_parents(const char *prefix, const char *path, mode_t mode)
     // TODO
     printf("Not implemented");
     exit(3);
-}
-
-// Executes the given command after fork() using execvp()
-// Incase of any error, calls exit()
-void exec_command(char *command, char **args)
-{
-    pid_t pid = fork();
-    if (pid == -1)
-    {
-        perror("fork");
-        exit(1);
-    }
-    if (pid == 0)
-    {
-        // In child process
-        if (execvp(command, args) == -1)
-        {
-            fprintf(stderr, "exec_command %s: %s\n", command, strerror(errno));
-            exit(1);
-        }
-    }
-    int status;
-    if (waitpid(pid, &status, 0) == -1)
-    {
-        fprintf(stderr, "waitpid (for exec_command %s): %s\n", command, strerror(errno));
-        exit(1);
-    }
-    if (WIFEXITED(status))
-    {
-        const int exit_status = WEXITSTATUS(status);
-        if (exit_status != EXIT_SUCCESS)
-        {
-            fprintf(stderr, "sub_command %s failed: %s\n", command, strerror(errno));
-            exit(1);
-        }
-    }
 }
 
 // @brief Creates a new directory in [container.containers_path] for this container
@@ -205,10 +153,20 @@ void container_create_overlayfs(struct Container *container)
 
 void container_delete(struct Container *container)
 {
+    // Create a temporary namespace first
+    // strformat(exec_args, EARGS_MAX, "link delete vb%s", container->id);
+    // exec_command_fail_ok("ip", exec_args);
+    // strformat(exec_args, EARGS_MAX, "netns delete ns%s", container->id);
+    // exec_command_fail_ok("ip", exec_args);
+    printf("Run the following commands for cleanup (as root)\n");
+    printf("========================\n");
+    printf("ip link delete vb%s\n", container->id);
+    printf("ip netns delete ns%s\n", container->id);
+
     printf("=> Removing container\n");
     // Delete container
     char *rmargs[] = {"rm", "-rf", container->container_dir, NULL};
-    exec_command("rm", rmargs);
+    exec_command_fail_ok("rm", rmargs);
 }
 
 // Creates a mount point within the root of the container

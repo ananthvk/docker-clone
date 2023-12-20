@@ -1,5 +1,17 @@
 #include "utils.h"
 #include <unistd.h>
+#include<limits.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 // A safer version of malloc, which exits the program if malloc fails
 void *safe_malloc(size_t size)
@@ -34,4 +46,88 @@ int exists(const char *path)
         return 1;
     }
     return 0;
+}
+
+
+// This is a thin wrapper around snprintf, but this function calls exit
+// if snprintf fails due to insufficient buffer capacity
+int strformat(char *buffer, size_t bufflen, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    int status = vsnprintf(buffer, bufflen, fmt, args);
+    if (status < 0 || status >= PATH_MAX)
+    {
+        va_end(args);
+        errorMessage("%s\n", "vsnprintf: Either the string was too large or snprintf failed.\n");
+    }
+    va_end(args);
+    return status;
+}
+
+// Executes the given command after fork() using execvp()
+// Incase of any error, calls exit()
+void exec_command(char *command, char **args)
+{
+    pid_t pid = fork();
+    if (pid == -1)
+    {
+        perror("fork");
+        exit(1);
+    }
+    if (pid == 0)
+    {
+        // In child process
+        if (execvp(command, args) == -1)
+        {
+            fprintf(stderr, "exec_command %s: %s\n", command, strerror(errno));
+            exit(1);
+        }
+    }
+    int status;
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        fprintf(stderr, "waitpid (for exec_command %s): %s\n", command, strerror(errno));
+        exit(1);
+    }
+    if (WIFEXITED(status))
+    {
+        const int exit_status = WEXITSTATUS(status);
+        if (exit_status != EXIT_SUCCESS)
+        {
+            fprintf(stderr, "sub_command %s failed: %s\n", command, strerror(errno));
+            exit(1);
+        }
+    }
+}
+
+void exec_command_fail_ok(char *command, char **args)
+{
+    pid_t pid = fork();
+    if (pid == -1)
+    {
+        perror("fork");
+        exit(1);
+    }
+    if (pid == 0)
+    {
+        // In child process
+        if (execvp(command, args) == -1)
+        {
+            fprintf(stderr, "exec_command %s: %s\n", command, strerror(errno));
+        }
+    }
+    int status;
+    if (waitpid(pid, &status, 0) == -1)
+    {
+        fprintf(stderr, "waitpid (for exec_command %s): %s\n", command, strerror(errno));
+    }
+    if (WIFEXITED(status))
+    {
+        const int exit_status = WEXITSTATUS(status);
+        if (exit_status != EXIT_SUCCESS)
+        {
+            fprintf(stderr, "sub_command %s failed: %s\n", command, strerror(errno));
+        }
+    }
 }

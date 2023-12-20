@@ -17,4 +17,7 @@
 void *safe_malloc(size_t size);
 char *random_id(char *buffer, int length);
 int exists(const char *path);
+int strformat(char *buffer, size_t bufflen, const char *fmt, ...);
+void exec_command(char *command, char **args);
+void exec_command_fail_ok(char *command, char **args);
 #endif // CONTAINER_UTIL_H
