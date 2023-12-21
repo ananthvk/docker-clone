@@ -8,11 +8,27 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <sched.h>
+#include <stdlib.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+struct Container current_container;
+
+void siginterrupt_handler(int sig) {}
+
+void handler()
+{
+    printf("=> Cleaning up\n");
+    container_delete(&current_container);
+    // Free resources
+    free(current_container.id);
+    free(current_container.root);
+    free(current_container.container_dir);
+    free(current_container.image_path);
+}
 
 /*
  * @short Parses the passed arguments and runs the specified image in a new container.
@@ -94,6 +110,10 @@ static int run_container(void *data)
 
 void cmd_run(int argc, char *argv[])
 {
+    atexit(handler);
+    struct sigaction sa;
+    sa.sa_handler = siginterrupt_handler;
+    sigaction(SIGINT, &sa, NULL);
     if (argc < 2)
     {
         printf("Usage: ./container run [options] image_name command [command options]\n");
@@ -129,7 +149,7 @@ void cmd_run(int argc, char *argv[])
     // |          |
     // |          |
     // +----------+
-
+    current_container = container;
     // Clone - new namespace, new uts for a new hostname, sigchld so that the parent is notified
     // if the child exits
     pid_t pid =
@@ -151,12 +171,7 @@ void cmd_run(int argc, char *argv[])
     container_connect_to_bridge(&container, (int)pid);
     int status;
     waitpid(pid, &status, 0);
-    container_delete(&container);
-    // Free resources
-    free(container.id);
-    free(container.root);
-    free(container.container_dir);
-    free(container.image_path);
+    printf("=> Container terminated\n");
     free(stack);
 }
 
@@ -164,3 +179,4 @@ void cmd_run(int argc, char *argv[])
 // https://cdimage.ubuntu.com/ubuntu-base/
 // https://cdimage.ubuntu.com/ubuntu-base/jammy/daily/current/jammy-base-amd64.tar.gz
 // TODO: Add sigint
+// TODO: In case of any error, container delete must be run

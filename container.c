@@ -163,7 +163,7 @@ void container_delete(struct Container *container)
     args[2] = "delete";
     args[3] = fmt;
     args[4] = NULL;
-    exec_command("ip", args);
+    exec_command_fail_ok("ip", args);
 
     strformat(fmt, ARG_MAX_LEN, "ns%s", container->id);
     args[0] = "ip";
@@ -171,7 +171,7 @@ void container_delete(struct Container *container)
     args[2] = "delete";
     args[3] = fmt;
     args[4] = NULL;
-    exec_command("ip", args);
+    exec_command_fail_ok("ip", args);
     free(fmt);
     printf("=> Removing container\n");
     // Delete container
