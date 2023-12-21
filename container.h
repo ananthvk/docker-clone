@@ -25,4 +25,5 @@ void container_extract_image(struct Container *container);
 void container_create_overlayfs(struct Container *container);
 void container_create_mounts(struct Container *container);
 void container_delete(struct Container *container);
+void container_connect_to_bridge(struct Container *container, int pid);
 #endif // COTNAINER_CONTAINER_H

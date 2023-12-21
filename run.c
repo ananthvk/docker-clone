@@ -148,25 +148,7 @@ void cmd_run(int argc, char *argv[])
     printf("=> PID of container: %d\n", pid);
     // Connect the created container to an existing docker0 bridge for development
     // TODO: Create a new bridge for this application, along with routing
-    // TODO: Use exec_command to automatically execute them
-
-    printf("Run the following commands as root\n");
-    printf("=================\n");
-
-    printf("ip netns add temp\n");
-    printf("ip netns delete temp\n");
-    printf("touch /var/run/netns/ns%s\n", container.id);
-    printf("chmod 0 /var/run/netns/ns%s\n", container.id);
-    printf("mount --bind /proc/%d/ns/net /var/run/netns/ns%s\n", (int)pid, container.id);
-    printf("ip link add eth%s type veth peer name vb%s\n", container.id, container.id);
-    printf("ip link set eth%s netns ns%s\n", container.id, container.id);
-    printf("ip link set vb%s master docker0\n", container.id);
-    printf("ip -n ns%s addr add 172.17.0.5/16 dev eth%s\n", container.id, container.id);
-    printf("ip -n ns%s link set eth%s up\n", container.id, container.id);
-    printf("ip -n ns%s link set lo up\n", container.id);
-    printf("ip -n ns%s route add default via 172.17.0.1\n", container.id);
-    printf("ip link set vb%s up\n", container.id);
-
+    container_connect_to_bridge(&container, (int)pid);
     int status;
     waitpid(pid, &status, 0);
     container_delete(&container);

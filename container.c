@@ -1,4 +1,5 @@
 #include "container.h"
+#include "config.h"
 #include "utils.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -153,16 +154,25 @@ void container_create_overlayfs(struct Container *container)
 
 void container_delete(struct Container *container)
 {
-    // Create a temporary namespace first
-    // strformat(exec_args, EARGS_MAX, "link delete vb%s", container->id);
-    // exec_command_fail_ok("ip", exec_args);
-    // strformat(exec_args, EARGS_MAX, "netns delete ns%s", container->id);
-    // exec_command_fail_ok("ip", exec_args);
-    printf("Run the following commands for cleanup (as root)\n");
-    printf("========================\n");
-    printf("ip link delete vb%s\n", container->id);
-    printf("ip netns delete ns%s\n", container->id);
+    char *args[10];
+    char *fmt = safe_malloc(ARG_MAX_LEN);
 
+    strformat(fmt, ARG_MAX_LEN, "vb%s", container->id);
+    args[0] = "ip";
+    args[1] = "link";
+    args[2] = "delete";
+    args[3] = fmt;
+    args[4] = NULL;
+    exec_command("ip", args);
+
+    strformat(fmt, ARG_MAX_LEN, "ns%s", container->id);
+    args[0] = "ip";
+    args[1] = "netns";
+    args[2] = "delete";
+    args[3] = fmt;
+    args[4] = NULL;
+    exec_command("ip", args);
+    free(fmt);
     printf("=> Removing container\n");
     // Delete container
     char *rmargs[] = {"rm", "-rf", container->container_dir, NULL};
@@ -265,4 +275,137 @@ void container_create_mounts(struct Container *container)
     // Add the following to /dev
     // drwxrwxrwt 1777 mqueue
     // drwxrwxrwt 1777 shm
+}
+
+void container_connect_to_bridge(struct Container *container, pid_t pid)
+{
+    printf("=> Bringing up network interfaces\n");
+    char *argument1 = safe_malloc(ARG_MAX_LEN);
+    char *argument2 = safe_malloc(ARG_MAX_LEN);
+    char *ns = safe_malloc(ARG_MAX_LEN);
+
+    // Arbitrarily set 10 as the max number of arguments
+    char *args[10];
+
+    args[0] = "ip";
+    args[1] = "netns";
+    args[2] = "add";
+    args[3] = "temp";
+    args[4] = NULL;
+    exec_command("ip", args);
+
+    args[2] = "delete";
+    exec_command("ip", args);
+
+    strformat(argument1, ARG_MAX_LEN, "/var/run/netns/ns%s", container->id);
+    args[0] = "touch";
+    args[1] = argument1;
+    args[2] = NULL;
+    exec_command("touch", args);
+
+    args[0] = "chmod";
+    args[1] = "0";
+    args[2] = argument1;
+    args[3] = NULL;
+    exec_command("chmod", args);
+
+    strformat(argument1, ARG_MAX_LEN, "/proc/%d/ns/net", pid);
+    strformat(argument2, ARG_MAX_LEN, "/var/run/netns/ns%s", container->id);
+    args[0] = "mount";
+    args[1] = "--bind";
+    args[2] = argument1;
+    args[3] = argument2;
+    args[4] = NULL;
+    exec_command("mount", args);
+
+
+    strformat(argument1, ARG_MAX_LEN, "eth%s", container->id);
+    strformat(argument2, ARG_MAX_LEN, "vb%s", container->id);
+    args[0] = "ip";
+    args[1] = "link";
+    args[2] = "add";
+    args[3] = argument1;
+    args[4] = "type";
+    args[5] = "veth";
+    args[6] = "peer";
+    args[7] = "name";
+    args[8] = argument2;
+    args[9] = NULL;
+    exec_command("ip", args);
+
+    strformat(ns, ARG_MAX_LEN, "ns%s", container->id);
+    char *eth = argument1;
+    char *br = argument2;
+
+    args[0] = "ip";
+    args[1] = "link";
+    args[2] = "set";
+    args[3] = eth;
+    args[4] = "netns";
+    args[5] = ns;
+    args[6] = NULL;
+    exec_command("ip", args);
+
+    args[0] = "ip";
+    args[1] = "link";
+    args[2] = "set";
+    args[3] = br;
+    args[4] = "master";
+    args[5] = BRIDGE_NAME;
+    args[6] = NULL;
+    exec_command("ip", args);
+
+    args[0] = "ip";
+    args[1] = "-n";
+    args[2] = ns;
+    args[3] = "addr";
+    args[4] = "add";
+    args[5] = CONTAINER_IP;
+    args[6] = "dev";
+    args[7] = eth;
+    args[8] = NULL;
+    exec_command("ip", args);
+
+    args[0] = "ip";
+    args[1] = "-n";
+    args[2] = ns;
+    args[3] = "link";
+    args[4] = "set";
+    args[5] = eth;
+    args[6] = "up";
+    args[7] = NULL;
+    exec_command("ip", args);
+
+    args[0] = "ip";
+    args[1] = "-n";
+    args[2] = ns;
+    args[3] = "link";
+    args[4] = "set";
+    args[5] = "lo";
+    args[6] = "up";
+    args[7] = NULL;
+    exec_command("ip", args);
+
+    args[0] = "ip";
+    args[1] = "-n";
+    args[2] = ns;
+    args[3] = "route";
+    args[4] = "add";
+    args[5] = "default";
+    args[6] = "via";
+    args[7] = BRIDGE_GATEWAY;
+    args[8] = NULL;
+    exec_command("ip", args);
+
+    args[0] = "ip";
+    args[1] = "link";
+    args[2] = "set";
+    args[3] = br;
+    args[4] = "up";
+    args[5] = NULL;
+    exec_command("ip", args);
+    
+    free(ns);
+    free(argument1);
+    free(argument2);
 }
