@@ -1,31 +1,38 @@
 # docker-clone
-I was learning about docker and wanted to know how it works internally.
-This is a toy docker implementation to learn more about docker
 
-# References
-I am following the workshop from
-[https://github.com/Fewbytes/rubber-docker](https://github.com/Fewbytes/rubber-docker)
-but instead of using python, I am going to do it in `C`
+## Purpose of this project
+I wanted to explore linux namespaces and understand how docker works internally.
+This project is a toy docker implementation in `C`
 
-# Here is an outline of the process
-1. fork()
-2. The main process only waits for the forked child to finish. All details here are in the child process.
-3. Extract the image from an archive to a directory with a random id (container id)
-4. unshare() to create a new namespace.
-5. Create a new mount for root and mount it as private.
-6. Mount `/proc` and `/sys`. Create a `tmpfs` for `/dev`.
-7. Mount `/dev/pts` as `devpts` file system, `/dev/stdin`, `/dev/stdout` and `/dev/stderr`
-8. Mount other necessary devices in `/dev` such as zero, urandom, etc
-9. chroot() into the container root.
-10. chdir() to `/`
-11. execvp() the new process.
+## Features
+- An `overlayfs` is used to create containers from images, thereby saving time on extraction of the image.
+- Uses `pivot_root` to change the root of the container
+- Creates a new `UTS`, `PID` and `NET` namespace for the container
+- A `veth` pair is used to connect the container to an existing `docker0` bridge
 
-# The directory structure of the container
-## Config
-`containers_path` - Path in which to store temporary containers and extracted images
-`images_path` - Path in which image files (as tar.gz) are stored
-## Created by program
-`<containers_path>/__extracted/<image_name>` - Extracted image files are stored here
-`<containers_path>/<container_id>/root` - New root of the container (`merged` directory)
-`<containers_path>/<container_id>/work` - `workdir` of the overlay
-`<containers_path>/<container_id>/diff` - Place modifications by the overlay are stored (`upperdir`)
+## Usage
+First compile the application
+```
+$ gcc -O3 main.c run.c utils.c container.c -o container -std=gnu11
+```
+Then run the program with
+```
+$ sudo ./container run <image_name> <command>
+```
+Example:
+```
+$sudo ./container run ubuntu bash
+```
+Note: The image file must be present in the `images/` directory with the following structure `images/<image_name>.tar.gz`
+The image file must be a compressed root filesystem
+Get an alpine linux image from [here](https://alpinelinux.org/downloads/) and save it as `images/alpine.tar.gz`
+For example, `images/ubuntu.tar.gz`
+## TODOS
+- Better handling of command line arguments
+- Command to build, create, view and download containers and images
+- Create a new bridge with routing instead of reusing `docker0`
+- Configuration files
+- `cgroups`, `setuid` and `seccomp`
+
+## References
+This project is based on [https://github.com/Fewbytes/rubber-docker](https://github.com/Fewbytes/rubber-docker), but is implemented in C.
