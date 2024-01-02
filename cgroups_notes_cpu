@@ -1,0 +1,58 @@
+# CGroups
+
+If the necessary folders are not created in `/sys/fs/cgroup`, add the following `cgroup_enable systemd.unified_cgroup_hierarchy=0` kernel parameters.
+
+For example, if you are using GRUB, add the above string to `GRUB_CMDLINE_LINUX_DEFAULT` in `/etc/default/grub`
+
+
+## Commands
+Install `stress` tool.
+
+For container 1,
+
+
+1. As root, create the folder `/sys/fs/cgroup/cpu/dockerclone/<CONTAINERID>`
+2. Run `echo <CONTAINERPID> > /sys/fs/cgroup/cpu/dockerclone/<CONTAINERID>/tasks`
+3. Run `echo 50 > /sys/fs/cgroup/cpu/dockerclone/<CONTAINERID>/cpu.shares`
+
+Do the same for another container 2, give it 200 shares
+
+## Observation 1
+If the containers are run when there is no system load, `cpu.shares` does not matter
+and both containers get similar `user`, i.e. CPU time
+```
+root@c951cd84b7:/# time stress --cpu 8 -t 10
+stress: info: [123] dispatching hogs: 8 cpu, 0 io, 0 vm, 0 hdd
+stress: info: [123] successful run completed in 10s
+
+real	0m10.009s
+user	1m15.091s
+sys	0m0.098s
+```
+
+## Observation 2
+If both containers are run simultaneously, more CPU time is allocated to container 2 as compared to container 1
+
+Container 1 with 50 shares
+
+```
+root@c951cd84b7:/# time stress --cpu 8 -t 10
+stress: info: [114] dispatching hogs: 8 cpu, 0 io, 0 vm, 0 hdd
+stress: info: [114] successful run completed in 10s
+
+real	0m10.010s
+user	0m18.602s
+sys	0m0.010s
+```
+
+Container 2 with 200 shares
+
+```
+root@0e29e64a53:/# time stress --cpu 8 -t 10
+stress: info: [90] dispatching hogs: 8 cpu, 0 io, 0 vm, 0 hdd
+stress: info: [90] successful run completed in 10s
+
+real	0m10.007s
+user	1m0.416s
+sys	0m0.040s
+```
