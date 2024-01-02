@@ -1,0 +1,14 @@
+# Memory cgroups
+```
+echo CONTAINER_PID > /sys/fs/cgroup/memory/dockerclone/CONTAINER_ID/tasks
+```
+
+This sets the maximum physical memory (RAM) which can be used by the process, this does not include swap memory
+```
+echo 1g > /sys/fs/cgroup/memory/dockerclone/CONTAINER_ID/memory.limit_in_bytes
+```
+
+Total memory which can be used by process (including swap memory)
+```
+echo 1g > /sys/fs/cgroup/memory/dockerclone/CONTAINER_ID/memory.memsw.limit_in_bytes
+```
